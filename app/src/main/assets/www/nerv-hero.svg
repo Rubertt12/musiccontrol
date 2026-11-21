@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520">
+<defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#120812"/><stop offset=".55" stop-color="#35101e"/><stop offset="1" stop-color="#08070c"/></linearGradient><linearGradient id="armor" x2="1" y2="1"><stop stop-color="#a5e33b"/><stop offset=".45" stop-color="#5638a0"/><stop offset="1" stop-color="#1d123d"/></linearGradient><filter id="glow"><feGaussianBlur stdDeviation="10"/></filter></defs>
+<rect width="900" height="520" fill="url(#bg)"/><path d="M0 420L900 280V520H0Z" fill="#08060a"/><g opacity=".22" stroke="#ff3448" stroke-width="2"><path d="M0 80H900M0 120H900M0 160H900M0 200H900M0 240H900M0 280H900M0 320H900M0 360H900M0 400H900"/><path d="M100 0V520M200 0V520M300 0V520M400 0V520M500 0V520M600 0V520M700 0V520M800 0V520"/></g>
+<circle cx="615" cy="230" r="170" fill="#e82a43" opacity=".14" filter="url(#glow)"/>
+<g transform="translate(480 38)" stroke="#130b20" stroke-width="13" stroke-linejoin="round">
+<path d="M110 90L150 15 198 78 178 142 124 145Z" fill="#5735a1"/><path d="M150 15L180 0 211 60 198 78Z" fill="#a7dc3b"/><path d="M125 105L83 145 100 218 150 202 174 138Z" fill="url(#armor)"/>
+<path d="M83 145L35 180 5 275 48 295 104 218Z" fill="#4d3193"/><path d="M174 138L220 168 260 260 218 281 165 215Z" fill="#a4d93b"/>
+<path d="M100 218L150 202 195 250 176 330 103 332 70 275Z" fill="#5d39a6"/><path d="M103 332L65 385 78 478 128 478 148 372 176 330Z" fill="#33205f"/><path d="M176 330L215 380 232 470 190 488 151 374Z" fill="#83b92d"/>
+<path d="M78 478L48 493 42 510 139 510 128 478Z" fill="#d6d6c9"/><path d="M190 488L181 510 278 510 232 470Z" fill="#d6d6c9"/>
+<path d="M5 275L-5 320 35 336 58 295Z" fill="#d6d6c9"/><path d="M218 281L260 260 281 305 244 328Z" fill="#d6d6c9"/>
+<path d="M126 118L153 91 180 122 154 150Z" fill="#ed263d"/><path d="M142 113L159 108 168 126 149 132Z" fill="#f6d63b" stroke="none"/>
+</g>
+<g fill="#ff394d" font-family="Arial,sans-serif" font-weight="900"><text x="36" y="62" font-size="24" letter-spacing="7">NERV / TOKYO-3</text><text x="36" y="95" font-size="12" letter-spacing="5">TACTICAL AUDIO DIVISION</text></g><path d="M36 112H380" stroke="#ff3448" stroke-width="3"/><text x="38" y="470" fill="#a5d64a" font-family="Arial,sans-serif" font-size="13" letter-spacing="4">UNIT-01 // SYSTEM READY</text>
+</svg>
