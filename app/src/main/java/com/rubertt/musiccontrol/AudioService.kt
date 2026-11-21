@@ -63,7 +63,7 @@ class AudioService : Service() {
             "stop" -> { players[channel]?.let { if (it.isPlaying) it.pause(); try { it.seekTo(0) } catch (_: Exception) {} } }
             "volume" -> { volumes[channel] = command.getFloatExtra("value", 1f).coerceIn(0f, 1f); applyVolume(channel) }
             "master" -> {
-                val v = intent.getFloatExtra("value", 1f).coerceIn(0f, 1f)
+                val v = command.getFloatExtra("value", 1f).coerceIn(0f, 1f)
                 for (i in 0..4) { volumes[i] = v; applyVolume(i) }
             }
         }
