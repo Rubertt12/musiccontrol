@@ -2,6 +2,7 @@ package com.rubertt.musiccontrol
 
 import android.app.*
 import android.content.Intent
+import android.graphics.Bitmap
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
@@ -9,6 +10,10 @@ import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
 import androidx.core.app.NotificationCompat
+import androidx.media.app.NotificationCompat.MediaStyle
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 
 class AudioService : Service() {
     private val players = arrayOfNulls<MediaPlayer>(5)
@@ -18,6 +23,9 @@ class AudioService : Service() {
     private val fadeTokens = IntArray(5)
     private val channelId = "music_control_playback"
     private val notificationId = 42
+    private lateinit var mediaSession: MediaSessionCompat
+    private var currentTitle = "Music Control"
+    private var currentChannel = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -25,25 +33,22 @@ class AudioService : Service() {
             val channel = NotificationChannel(channelId, "Reprodução de áudio", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
+        mediaSession = MediaSessionCompat(this, "MusicControlSession").apply {
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onPlay() { playAll() }
+                override fun onPause() { pauseAll() }
+                override fun onStop() { stopAll() }
+            })
+            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+        }
+        updateMediaSession()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "STOP_ALL") {
-            for (i in 0..4) release(i)
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-            return START_NOT_STICKY
-        }
-        if (intent?.action == "pause_all") {
-            players.forEach { player -> if (player?.isPlaying == true) player.pause() }
-            updateNotification()
-            return START_NOT_STICKY
-        }
-        if (intent?.action == "play_all") {
-            players.forEach { player -> try { player?.start() } catch (_: Exception) {} }
-            startForeground(notificationId, notification())
-            updateNotification()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            "STOP_ALL" -> { stopAll(); return START_NOT_STICKY }
+            "pause_all" -> { pauseAll(); return START_NOT_STICKY }
+            "play_all" -> { playAll(); return START_NOT_STICKY }
         }
         val command = intent ?: return START_NOT_STICKY
         val action = command.getStringExtra("action") ?: command.action ?: return START_NOT_STICKY
@@ -51,6 +56,8 @@ class AudioService : Service() {
         when (action) {
             "load" -> {
                 val uri = command.getStringExtra("uri") ?: return START_NOT_STICKY
+                currentTitle = command.getStringExtra("title") ?: currentTitle
+                currentChannel = channel
                 release(channel)
                 try {
                     val player = MediaPlayer()
@@ -58,8 +65,9 @@ class AudioService : Service() {
                     player.setDataSource(this, android.net.Uri.parse(uri))
                     player.setOnPreparedListener { updateNotification(); it.start(); updateNotification() }
                     player.setOnCompletionListener { updateNotification() }
-                    player.prepareAsync()
                     players[channel] = player
+                    updateMediaSession()
+                    player.prepareAsync()
                     startForeground(notificationId, notification())
                 } catch (_: Exception) { release(channel) }
             }
@@ -76,6 +84,25 @@ class AudioService : Service() {
         }
         updateNotification()
         return START_STICKY
+    }
+
+    private fun playAll() {
+        players.forEach { player -> try { if (player != null && !player.isPlaying) player.start() } catch (_: Exception) {} }
+        if (players.any { it != null }) startForeground(notificationId, notification())
+        updateNotification()
+    }
+
+    private fun pauseAll() {
+        players.forEach { player -> try { if (player?.isPlaying == true) player.pause() } catch (_: Exception) {} }
+        updateNotification()
+    }
+
+    private fun stopAll() {
+        for (i in 0..4) release(i)
+        mediaSession.isActive = false
+        updateMediaSession()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 
     private fun applyVolume(i: Int) { val v = (volumes[i] * fadeLevels[i]).coerceIn(0f, 1f); players[i]?.setVolume(v, v) }
@@ -101,31 +128,75 @@ class AudioService : Service() {
                 fadeLevels[i] = start + (end - start) * fraction
                 applyVolume(i)
                 if (fraction < 1f) fadeHandler.postAtTime(this, i, android.os.SystemClock.uptimeMillis() + 40L)
-                else if (!fadeIn) { try { if (player.isPlaying) player.pause() } catch (_: Exception) {} }
+                else if (!fadeIn) { try { if (player.isPlaying) player.pause() } catch (_: Exception) {} ; updateNotification() }
             }
         }
         fadeHandler.postAtTime(tick, i, android.os.SystemClock.uptimeMillis())
     }
+
     private fun release(i: Int) { cancelFade(i); try { players[i]?.release() } catch (_: Exception) {}; players[i] = null; fadeLevels[i] = 1f }
     private fun isPlaying() = players.any { it?.isPlaying == true }
+    private fun hasPlayers() = players.any { it != null }
+
+    private fun updateMediaSession() {
+        if (!::mediaSession.isInitialized) return
+        mediaSession.setMetadata(
+            MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_TITLE, currentTitle)
+                .putString(MediaMetadataCompat.METADATA_ARTIST, "Music Control · Canal ${currentChannel + 1}")
+                .putString(MediaMetadataCompat.METADATA_ALBUM, "NERV AUDIO SYSTEM")
+                .putLong(MediaMetadataCompat.METADATA_DURATION, 0L)
+                .build()
+        )
+        val playing = isPlaying()
+        val state = when {
+            playing -> PlaybackStateCompat.STATE_PLAYING
+            hasPlayers() -> PlaybackStateCompat.STATE_PAUSED
+            else -> PlaybackStateCompat.STATE_STOPPED
+        }
+        val actions = PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_STOP
+        mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setActions(actions).setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, if (playing) 1f else 0f).build())
+        mediaSession.isActive = hasPlayers()
+    }
 
     private fun notification(): android.app.Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val toggle = PendingIntent.getService(this, 1, Intent(this, AudioService::class.java).setAction(if (isPlaying()) "pause_all" else "play_all"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val playing = isPlaying()
+        val toggleAction = if (playing) "pause_all" else "play_all"
+        val toggle = PendingIntent.getService(this, 1, Intent(this, AudioService::class.java).setAction(toggleAction), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 2, Intent(this, AudioService::class.java).setAction("STOP_ALL"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        updateMediaSession()
         return NotificationCompat.Builder(this, channelId)
-            .setSmallIcon(android.R.drawable.ic_media_play).setContentTitle("Music Control")
-            .setContentText(if (isPlaying()) "Reprodução em andamento" else "Mixer pronto")
-            .setContentIntent(open).setOngoing(isPlaying())
-            .addAction(if (isPlaying()) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (isPlaying()) "Pausar" else "Reproduzir", toggle)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Parar tudo", stop)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setContentTitle(currentTitle)
+            .setContentText("Music Control · Canal ${currentChannel + 1}")
+            .setContentIntent(open)
+            .setOngoing(playing)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
+            .addAction(android.R.drawable.ic_media_previous, "Anterior", null)
+            .addAction(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "Pausar" else "Reproduzir", toggle)
+            .addAction(android.R.drawable.ic_media_next, "Próxima", null)
+            .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(1))
             .build()
     }
+
     private fun updateNotification() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(notificationId, notification())
-        if (!isPlaying() && players.all { it == null }) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+        updateMediaSession()
+        if (hasPlayers()) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.notify(notificationId, notification())
+        } else {
+            mediaSession.isActive = false
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
+
     override fun onBind(intent: Intent?): IBinder? = null
-    override fun onDestroy() { for (i in 0..4) release(i); super.onDestroy() }
+    override fun onDestroy() {
+        for (i in 0..4) release(i)
+        if (::mediaSession.isInitialized) { mediaSession.isActive = false; mediaSession.release() }
+        super.onDestroy()
+    }
 }
