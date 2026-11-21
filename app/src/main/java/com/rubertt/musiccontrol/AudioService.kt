@@ -29,6 +29,17 @@ class AudioService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
+        if (intent?.action == "pause_all") {
+            players.forEach { player -> if (player?.isPlaying == true) player.pause() }
+            updateNotification()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == "play_all") {
+            players.forEach { player -> try { player?.start() } catch (_: Exception) {} }
+            startForeground(notificationId, notification())
+            updateNotification()
+            return START_NOT_STICKY
+        }
         val action = intent?.getStringExtra("action") ?: intent?.action ?: return START_NOT_STICKY
         val channel = intent.getIntExtra("channel", 0).coerceIn(0, 4)
         when (action) {
