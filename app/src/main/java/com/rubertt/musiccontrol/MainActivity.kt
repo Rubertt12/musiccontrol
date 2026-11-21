@@ -59,11 +59,12 @@ class MainActivity : Activity() {
                 web.evaluateJavascript("window.trackLoaded && window.trackLoaded($channel, $safeTitle)", null)
             }
         }
-        @JavascriptInterface fun command(action: String, channel: Int, value: Float) {
+        @JavascriptInterface fun command(action: String, channel: Int, value: Float, durationSeconds: Float) {
             val intent = Intent(this@MainActivity, AudioService::class.java).apply {
                 putExtra("action", action)
                 putExtra("channel", channel.coerceIn(0, 4))
                 putExtra("value", value.coerceIn(0f, 1f))
+                putExtra("durationMs", (durationSeconds.coerceIn(0.2f, 60f) * 1000).toLong())
             }
             if (action == "play" || action == "load") startForegroundService(intent) else startService(intent)
         }
