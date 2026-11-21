@@ -174,10 +174,9 @@ class AudioService : Service() {
             .setOngoing(playing)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
-            .addAction(android.R.drawable.ic_media_previous, "Anterior", null)
             .addAction(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "Pausar" else "Reproduzir", toggle)
-            .addAction(android.R.drawable.ic_media_next, "Próxima", null)
-            .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(1))
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Parar", stop)
+            .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1))
             .build()
     }
 
