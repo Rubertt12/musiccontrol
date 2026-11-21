@@ -52,6 +52,7 @@ class MainActivity : Activity() {
                 putExtra("action", "load")
                 putExtra("channel", channel.coerceIn(0, 4))
                 putExtra("uri", uri)
+                putExtra("title", title)
             }
             startForegroundService(intent)
             val safeTitle = JSONObject.quote(title)
