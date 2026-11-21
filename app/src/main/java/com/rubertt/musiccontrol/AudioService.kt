@@ -40,11 +40,12 @@ class AudioService : Service() {
             updateNotification()
             return START_NOT_STICKY
         }
-        val action = intent?.getStringExtra("action") ?: intent?.action ?: return START_NOT_STICKY
-        val channel = intent.getIntExtra("channel", 0).coerceIn(0, 4)
+        val command = intent ?: return START_NOT_STICKY
+        val action = command.getStringExtra("action") ?: command.action ?: return START_NOT_STICKY
+        val channel = command.getIntExtra("channel", 0).coerceIn(0, 4)
         when (action) {
             "load" -> {
-                val uri = intent.getStringExtra("uri") ?: return START_NOT_STICKY
+                val uri = command.getStringExtra("uri") ?: return START_NOT_STICKY
                 release(channel)
                 try {
                     val player = MediaPlayer()
@@ -60,7 +61,7 @@ class AudioService : Service() {
             "play" -> { players[channel]?.let { if (!it.isPlaying) it.start() }; startForeground(notificationId, notification()) }
             "pause" -> players[channel]?.let { if (it.isPlaying) it.pause() }
             "stop" -> { players[channel]?.let { if (it.isPlaying) it.pause(); try { it.seekTo(0) } catch (_: Exception) {} } }
-            "volume" -> { volumes[channel] = intent.getFloatExtra("value", 1f).coerceIn(0f, 1f); applyVolume(channel) }
+            "volume" -> { volumes[channel] = command.getFloatExtra("value", 1f).coerceIn(0f, 1f); applyVolume(channel) }
             "master" -> {
                 val v = intent.getFloatExtra("value", 1f).coerceIn(0f, 1f)
                 for (i in 0..4) { volumes[i] = v; applyVolume(i) }
