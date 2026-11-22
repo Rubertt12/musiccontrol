@@ -80,6 +80,15 @@ class AudioService : Service() {
                 currentChannel = channel
                 loadOne(channel, uri, title, command.getBooleanExtra("autoPlay", false))
             }
+            "restore" -> {
+                val uri = command.getStringExtra("uri") ?: return START_NOT_STICKY
+                val title = command.getStringExtra("title") ?: "Áudio selecionado"
+                if (players[channel] == null) {
+                    currentTitle = title
+                    currentChannel = channel
+                    loadOne(channel, uri, title, false)
+                }
+            }
             "play" -> { playlistMode = false; playManual(channel, false, command.getLongExtra("durationMs", 3000L)) }
             "pause" -> { cancelFade(channel); players[channel]?.let { if (it.isPlaying) it.pause() } }
             "fade_in" -> { playlistMode = false; playManual(channel, true, command.getLongExtra("durationMs", 3000L)) }
