@@ -39,6 +39,9 @@ class AudioService : Service() {
     private var transitionStarted = false
     private var transitionToken = 0
     private var transitionRunnable: Runnable? = null
+    private var manualActiveChannel = -1
+    private var manualTransitionToken = 0
+    private var manualTransitionRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -70,16 +73,17 @@ class AudioService : Service() {
             "playlist" -> startPlaylist(command.getStringExtra("playlist") ?: "[]", command.getFloatExtra("fadeSeconds", 5f))
             "load" -> {
                 playlistMode = false
+                if (manualActiveChannel == channel) manualActiveChannel = -1
                 val uri = command.getStringExtra("uri") ?: return START_NOT_STICKY
                 val title = command.getStringExtra("title") ?: "Áudio selecionado"
                 currentTitle = title
                 currentChannel = channel
                 loadOne(channel, uri, title, command.getBooleanExtra("autoPlay", false))
             }
-            "play" -> { playlistMode = false; cancelFade(channel); fadeLevels[channel] = 1f; applyVolume(channel); players[channel]?.let { if (!it.isPlaying) it.start() }; startForeground(notificationId, notification()) }
+            "play" -> { playlistMode = false; playManual(channel, false, command.getLongExtra("durationMs", 3000L)) }
             "pause" -> { cancelFade(channel); players[channel]?.let { if (it.isPlaying) it.pause() } }
-            "fade_in" -> startFade(channel, true, command.getLongExtra("durationMs", 3000L))
-            "fade_out" -> startFade(channel, false, command.getLongExtra("durationMs", 3000L))
+            "fade_in" -> { playlistMode = false; playManual(channel, true, command.getLongExtra("durationMs", 3000L)) }
+            "fade_out" -> { playlistMode = false; fadeOutManual(channel, command.getLongExtra("durationMs", 3000L)) }
             "stop" -> { players[channel]?.let { if (it.isPlaying) it.pause(); try { it.seekTo(0) } catch (_: Exception) {} } }
             "volume" -> { volumes[channel] = command.getFloatExtra("value", 1f).coerceIn(0f, 1f); applyVolume(channel) }
             "master" -> { masterVolume = command.getFloatExtra("value", 1f).coerceIn(0f, 1f); for (i in 0 until channelCount) applyVolume(i) }
@@ -244,6 +248,121 @@ class AudioService : Service() {
         try { players[i]?.setVolume(v, v) } catch (_: Exception) {}
     }
 
+
+    private fun nextLoadedChannel(from: Int): Int {
+        val loaded = (0 until channelCount).filter { uris[it] != null && prepared[it] }
+        if (loaded.size < 2) return -1
+        val pos = loaded.indexOf(from)
+        return if (pos >= 0) loaded[(pos + 1) % loaded.size] else loaded.first()
+    }
+
+    private fun cancelManualTransition() {
+        manualTransitionToken++
+        manualTransitionRunnable?.let { fadeHandler.removeCallbacks(it) }
+        manualTransitionRunnable = null
+    }
+
+    private fun playManual(target: Int, fadeIn: Boolean, durationMs: Long) {
+        val incoming = players[target] ?: return
+        if (!prepared[target]) return
+        val oldIndex = manualActiveChannel
+        val old = if (oldIndex in 0 until channelCount) players[oldIndex] else null
+        if (oldIndex == target && old?.isPlaying == true) {
+            if (fadeIn) startFade(target, true, durationMs)
+            return
+        }
+        if (oldIndex !in 0 until channelCount || old == null || !old.isPlaying) {
+            cancelFade(target)
+            if (fadeIn) {
+                fadeLevels[target] = 0f
+                applyVolume(target)
+                try { incoming.seekTo(0); incoming.start() } catch (_: Exception) { return }
+                manualActiveChannel = target
+                val started = SystemClock.uptimeMillis()
+                val duration = durationMs.coerceIn(200L, 60000L)
+                val token = ++manualTransitionToken
+                val task = object : Runnable {
+                    override fun run() {
+                        if (token != manualTransitionToken) return
+                        val f = ((SystemClock.uptimeMillis() - started).toFloat() / duration).coerceIn(0f, 1f)
+                        fadeLevels[target] = f
+                        applyVolume(target)
+                        if (f < 1f) fadeHandler.postDelayed(this, 35L)
+                        else { manualTransitionRunnable = null; updateNotification() }
+                    }
+                }
+                manualTransitionRunnable = task
+                fadeHandler.post(task)
+            } else {
+                fadeLevels[target] = 1f
+                applyVolume(target)
+                try { if (!incoming.isPlaying) incoming.start() } catch (_: Exception) { return }
+                manualActiveChannel = target
+            }
+            currentChannel = target
+            currentTitle = titles[target]
+            startForeground(notificationId, notification())
+            updateNotification()
+            return
+        }
+        cancelManualTransition()
+        cancelFade(oldIndex)
+        cancelFade(target)
+        val duration = durationMs.coerceIn(200L, 60000L)
+        val started = SystemClock.uptimeMillis()
+        val oldStart = fadeLevels[oldIndex]
+        if (fadeIn) {
+            fadeLevels[target] = 0f
+            applyVolume(target)
+            try { incoming.seekTo(0); if (!incoming.isPlaying) incoming.start() } catch (_: Exception) { return }
+        } else {
+            try { if (!incoming.isPlaying) incoming.start() } catch (_: Exception) { return }
+        }
+        val token = ++manualTransitionToken
+        val task = object : Runnable {
+            override fun run() {
+                if (token != manualTransitionToken) return
+                val f = ((SystemClock.uptimeMillis() - started).toFloat() / duration).coerceIn(0f, 1f)
+                fadeLevels[oldIndex] = oldStart * (1f - f)
+                applyVolume(oldIndex)
+                if (fadeIn) {
+                    fadeLevels[target] = f
+                    applyVolume(target)
+                }
+                if (f < 1f) fadeHandler.postDelayed(this, 35L)
+                else {
+                    try { old.pause(); old.seekTo(0) } catch (_: Exception) {}
+                    fadeLevels[oldIndex] = 1f
+                    applyVolume(oldIndex)
+                    if (!fadeIn) {
+                        fadeLevels[target] = 1f
+                        applyVolume(target)
+                    }
+                    manualActiveChannel = target
+                    currentChannel = target
+                    currentTitle = titles[target]
+                    manualTransitionRunnable = null
+                    updateNotification()
+                }
+            }
+        }
+        manualTransitionRunnable = task
+        fadeHandler.post(task)
+        startForeground(notificationId, notification())
+    }
+
+    private fun fadeOutManual(channel: Int, durationMs: Long) {
+        if (channel == manualActiveChannel) {
+            val next = nextLoadedChannel(channel)
+            if (next >= 0) {
+                playManual(next, true, durationMs)
+                return
+            }
+            manualActiveChannel = -1
+        }
+        startFade(channel, false, durationMs)
+    }
+
     private fun cancelFade(i: Int) { fadeTokens[i]++; fadeHandler.removeCallbacksAndMessages(i) }
 
     private fun startFade(i: Int, fadeIn: Boolean, durationMs: Long) {
@@ -274,6 +393,7 @@ class AudioService : Service() {
     }
 
     private fun release(i: Int) {
+        if (manualActiveChannel == i) manualActiveChannel = -1
         cancelFade(i)
         try { players[i]?.release() } catch (_: Exception) {}
         players[i] = null
