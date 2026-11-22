@@ -311,13 +311,6 @@ class AudioService : Service() {
         val duration = durationMs.coerceIn(200L, 60000L)
         val started = SystemClock.uptimeMillis()
         val oldStart = fadeLevels[oldIndex]
-        if (fadeIn) {
-            fadeLevels[target] = 0f
-            applyVolume(target)
-            try { incoming.seekTo(0); if (!incoming.isPlaying) incoming.start() } catch (_: Exception) { return }
-        } else {
-            try { if (!incoming.isPlaying) incoming.start() } catch (_: Exception) { return }
-        }
         val token = ++manualTransitionToken
         val task = object : Runnable {
             override fun run() {
@@ -325,24 +318,22 @@ class AudioService : Service() {
                 val f = ((SystemClock.uptimeMillis() - started).toFloat() / duration).coerceIn(0f, 1f)
                 fadeLevels[oldIndex] = oldStart * (1f - f)
                 applyVolume(oldIndex)
-                if (fadeIn) {
-                    fadeLevels[target] = f
-                    applyVolume(target)
-                }
                 if (f < 1f) fadeHandler.postDelayed(this, 35L)
                 else {
                     try { old.pause(); old.seekTo(0) } catch (_: Exception) {}
                     fadeLevels[oldIndex] = 1f
                     applyVolume(oldIndex)
-                    if (!fadeIn) {
-                        fadeLevels[target] = 1f
-                        applyVolume(target)
-                    }
                     manualActiveChannel = target
                     currentChannel = target
                     currentTitle = titles[target]
                     manualTransitionRunnable = null
-                    updateNotification()
+                    if (fadeIn) startFade(target, true, durationMs)
+                    else {
+                        fadeLevels[target] = 1f
+                        applyVolume(target)
+                        try { incoming.seekTo(0); incoming.start() } catch (_: Exception) {}
+                        updateNotification()
+                    }
                 }
             }
         }
