@@ -217,7 +217,18 @@ class AudioService : Service() {
         if (playlistMode && currentIndex >= 0) {
             players[currentIndex]?.let { if (!it.isPlaying) it.start() }
             scheduleAutoTransition()
-        } else players.forEach { p -> try { if (p != null && !p.isPlaying) p.start() } catch (_: Exception) {} }
+        } else {
+            var target = manualActiveChannel
+            if (target !in 0 until channelCount || players[target] == null) {
+                target = (0 until channelCount).firstOrNull { players[it] != null && prepared[it] } ?: -1
+                manualActiveChannel = target
+            }
+            if (target in 0 until channelCount) {
+                try { players[target]?.let { if (!it.isPlaying) it.start() } } catch (_: Exception) {}
+                currentChannel = target
+                currentTitle = titles[target]
+            }
+        }
         if (hasPlayers()) startForeground(notificationId, notification())
         updateNotification()
     }
