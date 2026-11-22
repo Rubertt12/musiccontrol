@@ -74,7 +74,7 @@ class AudioService : Service() {
                 val title = command.getStringExtra("title") ?: "Áudio selecionado"
                 currentTitle = title
                 currentChannel = channel
-                loadOne(channel, uri, title, true)
+                loadOne(channel, uri, title, command.getBooleanExtra("autoPlay", false))
             }
             "play" -> { playlistMode = false; cancelFade(channel); fadeLevels[channel] = 1f; applyVolume(channel); players[channel]?.let { if (!it.isPlaying) it.start() }; startForeground(notificationId, notification()) }
             "pause" -> { cancelFade(channel); players[channel]?.let { if (it.isPlaying) it.pause() } }

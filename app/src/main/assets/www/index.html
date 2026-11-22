@@ -1,17 +1,28 @@
 <!doctype html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09060b"><title>Music Control // NERV</title><link rel="stylesheet" href="styles.css"></head>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#09060b"><title>Music Control // NERV</title><link rel="stylesheet" href="styles.css">
+</head>
 <body>
 <header class="topbar"><div class="brand"><div class="brandmark">N<span>°</span></div><div><h1>MUSIC CONTROL <i>//</i> NERV</h1><p>TACTICAL AUDIO INTERFACE · TOKYO-3</p></div></div><div class="sys"><span class="sysdot"></span> SYSTEM ONLINE <b>10 CH</b></div></header>
 <main>
-<nav class="tabs"><button class="tab active" data-page="mixer">▥ &nbsp; MIXER</button><button class="tab" data-page="library">♫ &nbsp; BIBLIOTECA</button></nav>
+<nav class="tabs"><button class="tab active" data-page="mixer">▥ &nbsp; CANAIS</button><button class="tab" data-page="library">♫ &nbsp; MINHAS MÚSICAS</button></nav>
 <section id="mixerPage">
-<div class="heroEv"><div class="heroCopy"><div class="warning">特務機関 NERV · AUDIO DIVISION</div><div class="heroTitle">SOUND<br><em>CONTROL</em></div><p>AUTOMATIC 10-CHANNEL AUDIO SYSTEM</p><div class="heroMeta"><span>MAGI SYSTEM</span><span>•</span><span>10 AUDIO CHANNELS</span></div></div><div class="nervSeal">NERV<small>GOD'S IN HIS HEAVEN<br>ALL'S RIGHT WITH THE WORLD</small></div></div>
-<div class="sectionLine"><span>01 / PLAYBACK CONTROL</span><b>CHANNEL STATUS <i>● ONLINE</i></b></div>
-<div class="masterPanel"><div class="masterLabel"><small>MASTER OUTPUT</small><strong id="masterValue">100%</strong></div><input id="master" type="range" min="0" max="100" value="100"><button id="stopAll" class="stopall">■ &nbsp; STOP ALL</button></div>
-<section class="playlistPanel"><div class="playlistHeading"><div><span class="warning">NERV AUTO SEQUENCE</span><h2>PLAYLIST <em>// CROSSFADE</em></h2><small id="playlistCount">0/10 MÚSICAS</small></div><div class="fadeSetting"><label for="autoFade">TEMPO DE TRANSIÇÃO</label><div><input id="autoFade" type="number" min="1" max="30" value="5"><b>SEGUNDOS</b></div></div></div><p class="playlistHint">A faixa seguinte entra automaticamente com Fade In enquanto a atual faz Fade Out. A faixa anterior é liberada ao final da transição.</p><div id="playlistList" class="playlistList"></div><div class="playlistActions"><button id="startPlaylist" class="startPlaylist">▶ INICIAR SEQUÊNCIA AUTOMÁTICA</button><button id="clearPlaylist" class="clearPlaylist">LIMPAR FILA</button></div></section>
-<div class="sectionLine"><span>02 / 10 AUDIO CHANNELS</span><b>INDEPENDENT OUTPUTS <i>● READY</i></b></div><section class="channels" id="channels"></section>
+<div class="heroEv"><div class="heroCopy"><div class="warning">特務機関 NERV · AUDIO DIVISION</div><div class="heroTitle">SOUND<br><em>CONTROL</em></div><p>10 INDEPENDENT AUDIO CHANNELS</p><div class="heroMeta"><span>NERV AUDIO SYSTEM</span><span>•</span><span>MANUAL FADE CONTROL</span></div></div><div class="nervSeal">NERV<small>GOD'S IN HIS HEAVEN<br>ALL'S RIGHT WITH THE WORLD</small></div></div>
+<div class="sectionLine"><span>01 / SAÍDA DE ÁUDIO</span><b>MASTER OUTPUT <i>● ONLINE</i></b></div>
+<div class="masterPanel"><div class="masterLabel"><small>VOLUME GERAL</small><strong id="masterValue">100%</strong></div><input id="master" type="range" min="0" max="100" value="100"><button id="stopAll" class="stopall">■ &nbsp; PARAR TODOS</button></div>
+<div class="sectionLine"><span>02 / CANAIS DE REPRODUÇÃO</span><b>FADE INDIVIDUAL <i>● READY</i></b></div>
+<p class="playlistHint">O canal 01 é sua música principal. Carregue outras músicas nos canais 02 a 10 e escolha quando reproduzir. Cada canal tem Play, Pausar, Parar, Fade In e Fade Out independentes. Não existe troca automática.</p>
+<section class="channels" id="channels"></section>
 </section>
-<section id="libraryPage" hidden><div class="libraryHero"><div><div class="warning">NERV DATABASE · MEDIA ARCHIVE</div><h2>音楽 <em>LIBRARY</em></h2><p>ADD UP TO 10 TRACKS TO THE AUTO SEQUENCE</p></div><div class="archiveStamp">CLASSIFIED<br><b>LEVEL 07</b></div></div><div class="folderPanel"><div class="folderIcon">▰</div><div class="folderText"><b>MUSIC DIRECTORY</b><small id="libraryStatus">Nenhuma pasta selecionada</small></div><button id="pickFolder" class="folderBtn">SELECT FOLDER</button></div><div class="searchWrap"><span>⌕</span><input id="searchMusic" type="search" placeholder="SEARCH AUDIO DATABASE..."></div><div class="libraryHeader"><b id="songCount">0 TRACKS</b><span>ADD TRACK → AUTO PLAYLIST</span></div><div id="musicList" class="musicList"><div class="empty">SELECT A MUSIC FOLDER TO SCAN THE ARCHIVE</div></div></section>
-<footer><span>© NERV AUDIO DIVISION <b>VER 2.0.0</b></span><span>SECURE CONNECTION <i>●</i></span></footer>
+<section id="libraryPage" hidden>
+<div class="libraryHero"><div><div class="warning">NERV DATABASE · MEDIA ARCHIVE</div><h2>音楽 <em>BIBLIOTECA</em></h2><p>ESCOLHA A PASTA ONDE ESTÃO SUAS MÚSICAS</p></div><div class="archiveStamp">CLASSIFIED<br><b>LEVEL 07</b></div></div>
+<div class="folderPanel"><div class="folderIcon">▰</div><div class="folderText"><b>PASTA DE MÚSICAS</b><small id="libraryStatus">Nenhuma pasta selecionada</small></div><button id="pickFolder" class="folderBtn">ESCOLHER PASTA</button></div>
+<div class="searchWrap"><span>⌕</span><input id="searchMusic" type="search" placeholder="BUSCAR MÚSICA..."></div>
+<div class="libraryHeader"><b id="songCount">0 ARQUIVOS</b><span>ESCOLHA UM CANAL PARA CARREGAR A FAIXA</span></div>
+<div id="musicList" class="musicList"><div class="empty">SELECIONE UMA PASTA PARA CARREGAR SUAS MÚSICAS</div></div>
+</section>
+<div id="statusMessage" class="statusMessage">Selecione uma pasta na Biblioteca para começar.</div>
+<footer><span>© NERV AUDIO DIVISION <b>VER 3.0.0</b></span><span>SECURE CONNECTION <i>●</i></span></footer>
 </main><script src="app.js"></script></body></html>

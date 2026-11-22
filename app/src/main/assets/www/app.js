@@ -1,27 +1,147 @@
-const host=document.getElementById('channels');
-const names=Array.from({length:10},(_,i)=>i===0?'Música principal':`Canal ${String(i+1).padStart(2,'0')}`);
-const tracks=names.map(name=>({name,file:'Nenhuma música na fila',volume:100,fadeSeconds:3,playing:false}));
-let library=[],playlist=[],selectedSong=null;
-function native(action,i,value=1,duration=3){if(window.NativeAudio)NativeAudio.command(action,i,value,duration)}
-function showPage(page){document.getElementById('libraryPage').hidden=page!=='library';document.getElementById('mixerPage').hidden=page!=='mixer';document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.page===page))}
-document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>showPage(b.dataset.page)));
-document.getElementById('pickFolder').addEventListener('click',()=>{if(window.NativeAudio)NativeAudio.chooseFolder();else alert('A escolha de pasta está disponível no aplicativo Android.')});
-function libraryLoaded(songs){library=songs||[];document.getElementById('libraryStatus').textContent='Pasta carregada · '+library.length+' arquivos encontrados';renderLibrary()}
-function libraryError(message){document.getElementById('libraryStatus').textContent=message}
-function renderLibrary(){const q=document.getElementById('searchMusic').value.trim().toLowerCase();const visible=library.filter(s=>s.name.toLowerCase().includes(q));document.getElementById('songCount').textContent=library.length+' TRACKS';const list=document.getElementById('musicList');if(!visible.length){list.innerHTML='<div class="empty">NENHUM ÁUDIO ENCONTRADO</div>';return}list.innerHTML=visible.map(s=>{const idx=library.indexOf(s),added=playlist.some(p=>p.uri===s.uri);return `<div class="songRow ${added?'selected':''}"><div class="songIcon">♫</div><div class="songInfo"><b>${escapeHtml(s.name)}</b><small>${added?'NA FILA DE REPRODUÇÃO':'ARQUIVO DE ÁUDIO · LOCAL'}</small></div><button class="assignBtn" onclick="addSong(${idx})">${added?'ADICIONADA':'ADICIONAR'}</button></div>`}).join('')}
-function escapeHtml(v){return String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-function addSong(idx){const song=library[idx];if(!song||playlist.some(p=>p.uri===song.uri))return;if(playlist.length>=10){alert('A fila aceita até 10 músicas.');return}playlist.push(song);renderLibrary();renderPlaylist()}
-function removeSong(idx){playlist.splice(idx,1);renderPlaylist();renderLibrary()}
-function moveSong(idx,delta){const to=idx+delta;if(to<0||to>=playlist.length)return;[playlist[idx],playlist[to]]=[playlist[to],playlist[idx]];renderPlaylist()}
-function renderPlaylist(){const list=document.getElementById('playlistList');document.getElementById('playlistCount').textContent=playlist.length+'/10 MÚSICAS';if(!playlist.length){list.innerHTML='<div class="empty">ADICIONE ATÉ 10 MÚSICAS NA BIBLIOTECA</div>';return}list.innerHTML=playlist.map((s,i)=>`<div class="queueRow"><b>0${i+1}</b><span>${escapeHtml(s.name)}</span><button onclick="moveSong(${i},-1)" title="Mover para cima">↑</button><button onclick="moveSong(${i},1)" title="Mover para baixo">↓</button><button onclick="removeSong(${i})" title="Remover">×</button></div>`).join('')}
-function startPlaylist(){if(!playlist.length){alert('Adicione pelo menos uma música à fila.');return}const fade=Math.max(1,Math.min(30,Number(document.getElementById('autoFade').value)||5));if(window.NativeAudio)NativeAudio.setPlaylist(JSON.stringify(playlist),fade);playlist.forEach((s,i)=>{tracks[i].file=s.name;tracks[i].playing=i===0});for(let i=playlist.length;i<10;i++){tracks[i].file='Canal livre';tracks[i].playing=false}render();showPage('mixer')}
-function trackLoaded(i,name){if(tracks[i])tracks[i].file=name;render()}
-function render(){host.innerHTML=tracks.map((t,i)=>`<article class="channel"><div class="channel-top"><div class="channel-name"><div class="number">0${i+1}</div><div><h3>${t.name}</h3><small>CHANNEL ${String(i+1).padStart(2,'0')}</small></div></div><span class="state">${t.playing?'● PRINCIPAL':'○ FILA / LIVRE'}</span></div><div class="track"><span>${escapeHtml(t.file)}</span></div><div class="controls"><button class="play" onclick="toggle(${i})">${t.playing?'Ⅱ PAUSE':'▶ PLAY'}</button><button onclick="stop(${i})">■</button></div><div class="fadeControls"><label>FADE (SEG) <input type="number" min="0.2" max="60" step="0.5" value="${t.fadeSeconds}" onchange="setFadeDuration(${i},this.value)"></label><button onclick="fadeChannel(${i},true)">↗ FADE IN</button><button onclick="fadeChannel(${i},false)">↘ FADE OUT</button></div><label class="vol">VOLUME DO CANAL <input type="range" min="0" max="100" value="${t.volume}" oninput="volume(${i},this.value)"><b id="vol${i}">${t.volume}%</b></label></article>`).join('')}
-function toggle(i){if(!tracks[i].playing){native('play',i);tracks[i].playing=true}else{native('pause',i);tracks[i].playing=false}render()}
-function stop(i){native('stop',i);tracks[i].playing=false;render()}
-function setFadeDuration(i,v){tracks[i].fadeSeconds=Math.max(.2,Math.min(60,Number(v)||3))}\nfunction fadeChannel(i,fadeIn){native(fadeIn?'fade_in':'fade_out',i,1,tracks[i].fadeSeconds);if(fadeIn)tracks[i].playing=true;else tracks[i].playing=false;render()}\nfunction volume(i,v){tracks[i].volume=+v;native('volume',i,+v/100);document.getElementById('vol'+i).textContent=v+'%'}
-document.getElementById('master').addEventListener('input',e=>{const v=+e.target.value;document.getElementById('masterValue').textContent=v+'%';tracks.forEach((t,i)=>{native('volume',i,v/100);t.volume=v});render()});
-document.getElementById('stopAll').addEventListener('click',()=>{if(window.NativeAudio)NativeAudio.stopAll();tracks.forEach(t=>t.playing=false);render()});
-document.getElementById('startPlaylist').addEventListener('click',startPlaylist);
-document.getElementById('clearPlaylist').addEventListener('click',()=>{playlist=[];renderPlaylist();renderLibrary()});
-render();renderPlaylist();showPage('mixer');
+const host = document.getElementById('channels');
+const tracks = Array.from({length:10}, (_,i) => ({
+  name: i === 0 ? 'Música principal' : 'Canal ' + String(i+1).padStart(2,'0'),
+  file: 'Nenhuma música carregada', loaded:false, playing:false, volume:100, fadeSeconds:3
+}));
+let library = [];
+
+function native(action, channel, value=1, seconds=3) {
+  if (!window.NativeAudio) { setStatus('Controle nativo indisponível.'); return; }
+  NativeAudio.command(action, channel, value, seconds);
+}
+function setStatus(message) {
+  const el=document.getElementById('statusMessage');
+  if(el) el.textContent=message;
+}
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function showPage(page) {
+  document.getElementById('libraryPage').hidden = page !== 'library';
+  document.getElementById('mixerPage').hidden = page !== 'mixer';
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.page === page));
+}
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => showPage(b.dataset.page)));
+document.getElementById('pickFolder').addEventListener('click', () => {
+  if(window.NativeAudio) NativeAudio.chooseFolder();
+  else setStatus('Abra esta tela pelo aplicativo Android.');
+});
+document.getElementById('searchMusic').addEventListener('input', renderLibrary);
+
+window.libraryLoaded = function(songs) {
+  library = Array.isArray(songs) ? songs : [];
+  document.getElementById('libraryStatus').textContent = library.length + ' músicas encontradas na pasta selecionada';
+  setStatus(library.length ? 'Pasta carregada. Escolha uma música e o canal.' : 'Nenhum arquivo de áudio encontrado nesta pasta.');
+  renderLibrary();
+};
+window.libraryError = function(message) { setStatus(message); };
+window.trackLoaded = function(channel, title) {
+  if(!tracks[channel]) return;
+  tracks[channel].file = title;
+  tracks[channel].loaded = true;
+  renderChannels();
+  setStatus('Carregada em ' + tracks[channel].name + '. Use Play ou Fade In para tocar.');
+};
+
+function renderLibrary() {
+  const query = document.getElementById('searchMusic').value.trim().toLowerCase();
+  const list = document.getElementById('musicList');
+  const filtered = library.map((song,index)=>({song,index})).filter(x=>x.song.name.toLowerCase().includes(query));
+  document.getElementById('songCount').textContent = library.length + ' ARQUIVOS';
+  if(!filtered.length) {
+    list.innerHTML = '<div class="empty">' + (library.length ? 'NENHUMA MÚSICA COM ESSE NOME' : 'SELECIONE UMA PASTA PARA CARREGAR SUAS MÚSICAS') + '</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(({song,index}) => `
+    <article class="songRow">
+      <div class="songIcon">♫</div>
+      <div class="songInfo"><b>${escapeHtml(song.name)}</b><small>ARQUIVO LOCAL</small></div>
+      <button class="assignBtn" data-action="make-main" data-song="${index}">USAR COMO PRINCIPAL</button>
+      <select class="channelSelect" data-select-song="${index}" aria-label="Escolher canal">
+        ${tracks.map((t,i)=>`<option value="${i}">${i===0?'Principal':'Canal '+String(i+1).padStart(2,'0')}</option>`).join('')}
+      </select>
+      <button class="assignBtn" data-action="load-channel" data-song="${index}">CARREGAR</button>
+    </article>`).join('');
+}
+
+function renderChannels() {
+  host.innerHTML = tracks.map((t,i)=>`
+    <article class="channel">
+      <div class="channel-top">
+        <div class="channel-name"><div class="number">${String(i+1).padStart(2,'0')}</div>
+          <div><h3>${escapeHtml(t.name)}</h3><small>${i===0?'CANAL PRINCIPAL':'CANAL INDEPENDENTE'}</small></div>
+        </div>
+        <span class="state">${t.playing?'● TOCANDO':t.loaded?'● CARREGADO':'○ VAZIO'}</span>
+      </div>
+      <div class="track"><span>${escapeHtml(t.file)}</span></div>
+      <div class="controls">
+        <button class="play" data-action="play" data-channel="${i}" ${t.loaded?'':'disabled'}>▶ PLAY</button>
+        <button data-action="pause" data-channel="${i}" ${t.loaded?'':'disabled'}>Ⅱ PAUSAR</button>
+        <button data-action="stop" data-channel="${i}" ${t.loaded?'':'disabled'}>■ PARAR</button>
+      </div>
+      <div class="fadeControls">
+        <label>FADE (SEG) <input type="number" min="0.2" max="60" step="0.5" value="${t.fadeSeconds}" data-fade-duration="${i}"></label>
+        <button data-action="fade-in" data-channel="${i}" ${t.loaded?'':'disabled'}>↗ FADE IN</button>
+        <button data-action="fade-out" data-channel="${i}" ${t.loaded?'':'disabled'}>↘ FADE OUT</button>
+      </div>
+      <label class="vol">VOLUME DO CANAL <input type="range" min="0" max="100" value="${t.volume}" data-volume="${i}" ${t.loaded?'':'disabled'}><b>${t.volume}%</b></label>
+    </article>`).join('');
+}
+function assignSong(songIndex, channel) {
+  const song=library[songIndex];
+  if(!song || !window.NativeAudio) return;
+  NativeAudio.assign(song.uri, channel, song.name);
+  tracks[channel].file=song.name;
+  tracks[channel].loaded=true;
+  tracks[channel].playing=false;
+  renderChannels();
+  setStatus('Carregando "'+song.name+'" em '+tracks[channel].name+'.');
+}
+document.getElementById('musicList').addEventListener('click', event => {
+  const button=event.target.closest('button[data-action]');
+  if(!button) return;
+  const songIndex=Number(button.dataset.song);
+  if(button.dataset.action==='make-main') assignSong(songIndex,0);
+  if(button.dataset.action==='load-channel') {
+    const select=document.querySelector('[data-select-song="'+songIndex+'"]');
+    assignSong(songIndex,Number(select.value));
+  }
+});
+host.addEventListener('click', event => {
+  const button=event.target.closest('button[data-action]');
+  if(!button) return;
+  const i=Number(button.dataset.channel);
+  const action=button.dataset.action;
+  if(!tracks[i] || !tracks[i].loaded) return;
+  if(action==='play') { native('play',i); tracks[i].playing=true; }
+  if(action==='pause') { native('pause',i); tracks[i].playing=false; }
+  if(action==='stop') { native('stop',i); tracks[i].playing=false; }
+  if(action==='fade-in') { native('fade_in',i,1,tracks[i].fadeSeconds); tracks[i].playing=true; }
+  if(action==='fade-out') { native('fade_out',i,1,tracks[i].fadeSeconds); tracks[i].playing=false; }
+  renderChannels();
+});
+host.addEventListener('change', event => {
+  const duration=event.target.dataset.fadeDuration;
+  if(duration!==undefined) tracks[Number(duration)].fadeSeconds=Math.max(.2,Math.min(60,Number(event.target.value)||3));
+});
+host.addEventListener('input', event => {
+  const volume=event.target.dataset.volume;
+  if(volume===undefined) return;
+  const i=Number(volume), value=Number(event.target.value);
+  tracks[i].volume=value;
+  native('volume',i,value/100);
+  event.target.nextElementSibling.textContent=value+'%';
+});
+document.getElementById('master').addEventListener('input', event => {
+  const value=Number(event.target.value);
+  document.getElementById('masterValue').textContent=value+'%';
+  native('master',0,value/100);
+});
+document.getElementById('stopAll').addEventListener('click', () => {
+  if(window.NativeAudio) NativeAudio.stopAll();
+  tracks.forEach(t=>t.playing=false);
+  renderChannels();
+  setStatus('Todos os canais foram parados.');
+});
+renderChannels();
+showPage('mixer');

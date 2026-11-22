@@ -48,7 +48,7 @@ class MainActivity : Activity() {
         }
         @JavascriptInterface fun assign(uri: String, channel: Int, title: String) {
             val intent = Intent(this@MainActivity, AudioService::class.java).apply {
-                putExtra("action", "load"); putExtra("channel", channel.coerceIn(0, 9)); putExtra("uri", uri); putExtra("title", title)
+                putExtra("action", "load"); putExtra("channel", channel.coerceIn(0, 9)); putExtra("uri", uri); putExtra("title", title); putExtra("autoPlay", false)
             }
             startForegroundService(intent)
             val safeTitle = JSONObject.quote(title)
