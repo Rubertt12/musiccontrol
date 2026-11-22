@@ -113,11 +113,26 @@ host.addEventListener('click', event => {
   const i=Number(button.dataset.channel);
   const action=button.dataset.action;
   if(!tracks[i] || !tracks[i].loaded) return;
-  if(action==='play') { native('play',i); tracks[i].playing=true; }
+  if(action==='play') {
+    native('play',i);
+    tracks.forEach((track,index)=>track.playing=index===i);
+    setStatus('Trocando para '+tracks[i].file+'. A faixa atual será encerrada antes da próxima começar.');
+  }
   if(action==='pause') { native('pause',i); tracks[i].playing=false; }
   if(action==='stop') { native('stop',i); tracks[i].playing=false; }
-  if(action==='fade-in') { native('fade_in',i,1,tracks[i].fadeSeconds); tracks[i].playing=true; }
-  if(action==='fade-out') { native('fade_out',i,1,tracks[i].fadeSeconds); tracks[i].playing=false; }
+  if(action==='fade-in') {
+    native('fade_in',i,1,tracks[i].fadeSeconds);
+    tracks.forEach((track,index)=>track.playing=index===i);
+    setStatus('Fade In iniciado em '+tracks[i].file+'.');
+  }
+  if(action==='fade-out') {
+    const loaded=tracks.map((track,index)=>({track,index})).filter(x=>x.track.loaded).map(x=>x.index);
+    const position=loaded.indexOf(i);
+    const next=position>=0 && loaded.length>1 ? loaded[(position+1)%loaded.length] : -1;
+    native('fade_out',i,1,tracks[i].fadeSeconds);
+    tracks.forEach((track,index)=>track.playing=index===next);
+    setStatus(next>=0 ? 'Fade Out de '+tracks[i].file+'; próxima: '+tracks[next].file+'.' : 'Fade Out iniciado. Não há outra música carregada para entrar.');
+  }
   renderChannels();
 });
 host.addEventListener('change', event => {
