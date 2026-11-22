@@ -29,7 +29,12 @@ class MainActivity : Activity() {
         web.settings.javaScriptEnabled = true
         web.settings.domStorageEnabled = true
         web.webChromeClient = WebChromeClient()
-        web.webViewClient = WebViewClient()
+        web.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                restoreSavedState()
+            }
+        }
         web.addJavascriptInterface(Bridge(), "NativeAudio")
         setContentView(web)
         web.loadUrl("file:///android_asset/www/index.html")
@@ -50,6 +55,10 @@ class MainActivity : Activity() {
             val intent = Intent(this@MainActivity, AudioService::class.java).apply {
                 putExtra("action", "load"); putExtra("channel", channel.coerceIn(0, 9)); putExtra("uri", uri); putExtra("title", title); putExtra("autoPlay", false)
             }
+            getSharedPreferences("music_control", MODE_PRIVATE).edit()
+                .putString("channel_${channel}_uri", uri)
+                .putString("channel_${channel}_title", title)
+                .apply()
             startForegroundService(intent)
             val safeTitle = JSONObject.quote(title)
             runOnUiThread { web.evaluateJavascript("window.trackLoaded && window.trackLoaded($channel, $safeTitle)", null) }
@@ -77,7 +86,9 @@ class MainActivity : Activity() {
         val uri = data.data!!
         if (requestCode == pickFolder) {
             try {
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                val flags = data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                contentResolver.takePersistableUriPermission(uri, flags)
+                getSharedPreferences("music_control", MODE_PRIVATE).edit().putString("music_folder_uri", uri.toString()).apply()
                 val songs = scanAudioFolder(uri)
                 val payload = JSONArray()
                 songs.forEach { payload.put(JSONObject().put("name", it.first).put("uri", it.second)) }
@@ -86,10 +97,49 @@ class MainActivity : Activity() {
                 web.evaluateJavascript("window.libraryError && window.libraryError('Não foi possível ler esta pasta.')", null)
             }
         } else if (requestCode == pickAudio) {
-            try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
-            val intent = Intent(this, AudioService::class.java).apply { putExtra("action", "load"); putExtra("channel", pendingChannel); putExtra("uri", uri.toString()) }
+            try {
+                val flags = data.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, flags)
+            } catch (_: Exception) {}
+            val title = uri.lastPathSegment?.substringAfterLast('/') ?: "Áudio selecionado"
+            getSharedPreferences("music_control", MODE_PRIVATE).edit()
+                .putString("channel_${pendingChannel}_uri", uri.toString())
+                .putString("channel_${pendingChannel}_title", title)
+                .apply()
+            val intent = Intent(this, AudioService::class.java).apply {
+                putExtra("action", "load"); putExtra("channel", pendingChannel); putExtra("uri", uri.toString())
+                putExtra("title", title); putExtra("autoPlay", false)
+            }
             startForegroundService(intent)
-            web.evaluateJavascript("window.trackLoaded && window.trackLoaded($pendingChannel, 'Áudio selecionado')", null)
+            val safeTitle = JSONObject.quote(title)
+            web.evaluateJavascript("window.trackLoaded && window.trackLoaded($pendingChannel, $safeTitle)", null)
+        }
+    }
+
+    private fun restoreSavedState() {
+        val prefs = getSharedPreferences("music_control", MODE_PRIVATE)
+        val folderValue = prefs.getString("music_folder_uri", null)
+        if (folderValue != null) {
+            try {
+                val folder = Uri.parse(folderValue)
+                val songs = scanAudioFolder(folder)
+                val payload = JSONArray()
+                songs.forEach { payload.put(JSONObject().put("name", it.first).put("uri", it.second)) }
+                web.evaluateJavascript("window.libraryLoaded && window.libraryLoaded($payload)", null)
+            } catch (_: Exception) {
+                web.evaluateJavascript("window.libraryError && window.libraryError('A pasta salva não está mais acessível. Selecione-a novamente.')", null)
+            }
+        }
+        for (channel in 0 until 10) {
+            val uri = prefs.getString("channel_${channel}_uri", null) ?: continue
+            val title = prefs.getString("channel_${channel}_title", "Áudio selecionado") ?: "Áudio selecionado"
+            val intent = Intent(this, AudioService::class.java).apply {
+                putExtra("action", "restore"); putExtra("channel", channel)
+                putExtra("uri", uri); putExtra("title", title); putExtra("autoPlay", false)
+            }
+            startForegroundService(intent)
+            val safeTitle = JSONObject.quote(title)
+            web.evaluateJavascript("window.trackLoaded && window.trackLoaded($channel, $safeTitle)", null)
         }
     }
 
