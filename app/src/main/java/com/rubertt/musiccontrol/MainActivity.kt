@@ -37,46 +37,37 @@ class MainActivity : Activity() {
 
     inner class Bridge {
         @JavascriptInterface fun chooseFolder() {
-            runOnUiThread {
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
-                startActivityForResult(intent, pickFolder)
-            }
+            runOnUiThread { startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), pickFolder) }
         }
         @JavascriptInterface fun choose(channel: Int) {
-            pendingChannel = channel.coerceIn(0, 4)
+            pendingChannel = channel.coerceIn(0, 9)
             runOnUiThread {
-                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "audio/*"
-                }
+                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply { addCategory(Intent.CATEGORY_OPENABLE); type = "audio/*" }
                 startActivityForResult(intent, pickAudio)
             }
         }
         @JavascriptInterface fun assign(uri: String, channel: Int, title: String) {
             val intent = Intent(this@MainActivity, AudioService::class.java).apply {
-                putExtra("action", "load")
-                putExtra("channel", channel.coerceIn(0, 4))
-                putExtra("uri", uri)
-                putExtra("title", title)
+                putExtra("action", "load"); putExtra("channel", channel.coerceIn(0, 9)); putExtra("uri", uri); putExtra("title", title)
             }
             startForegroundService(intent)
             val safeTitle = JSONObject.quote(title)
-            runOnUiThread {
-                web.evaluateJavascript("window.trackLoaded && window.trackLoaded($channel, $safeTitle)", null)
+            runOnUiThread { web.evaluateJavascript("window.trackLoaded && window.trackLoaded($channel, $safeTitle)", null) }
+        }
+        @JavascriptInterface fun setPlaylist(json: String, fadeSeconds: Float) {
+            val intent = Intent(this@MainActivity, AudioService::class.java).apply {
+                putExtra("action", "playlist"); putExtra("playlist", json); putExtra("fadeSeconds", fadeSeconds.coerceIn(1f, 30f))
             }
+            startForegroundService(intent)
         }
         @JavascriptInterface fun command(action: String, channel: Int, value: Float, durationSeconds: Float) {
             val intent = Intent(this@MainActivity, AudioService::class.java).apply {
-                putExtra("action", action)
-                putExtra("channel", channel.coerceIn(0, 4))
-                putExtra("value", value.coerceIn(0f, 1f))
-                putExtra("durationMs", (durationSeconds.coerceIn(0.2f, 60f) * 1000).toLong())
+                putExtra("action", action); putExtra("channel", channel.coerceIn(0, 9))
+                putExtra("value", value.coerceIn(0f, 1f)); putExtra("durationMs", (durationSeconds.coerceIn(0.2f, 60f) * 1000).toLong())
             }
-            if (action == "play" || action == "load") startForegroundService(intent) else startService(intent)
+            if (action == "play" || action == "load" || action == "playlist") startForegroundService(intent) else startService(intent)
         }
-        @JavascriptInterface fun stopAll() {
-            startService(Intent(this@MainActivity, AudioService::class.java).setAction("STOP_ALL"))
-        }
+        @JavascriptInterface fun stopAll() { startService(Intent(this@MainActivity, AudioService::class.java).setAction("STOP_ALL")) }
     }
 
     @Deprecated("Deprecated in Android API")
@@ -90,20 +81,13 @@ class MainActivity : Activity() {
                 val songs = scanAudioFolder(uri)
                 val payload = JSONArray()
                 songs.forEach { payload.put(JSONObject().put("name", it.first).put("uri", it.second)) }
-                val json = payload.toString()
-                web.evaluateJavascript("window.libraryLoaded && window.libraryLoaded($json)", null)
-            } catch (e: Exception) {
+                web.evaluateJavascript("window.libraryLoaded && window.libraryLoaded($payload)", null)
+            } catch (_: Exception) {
                 web.evaluateJavascript("window.libraryError && window.libraryError('Não foi possível ler esta pasta.')", null)
             }
         } else if (requestCode == pickAudio) {
-            try {
-                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            } catch (_: Exception) {}
-            val intent = Intent(this, AudioService::class.java).apply {
-                putExtra("action", "load")
-                putExtra("channel", pendingChannel)
-                putExtra("uri", uri.toString())
-            }
+            try { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: Exception) {}
+            val intent = Intent(this, AudioService::class.java).apply { putExtra("action", "load"); putExtra("channel", pendingChannel); putExtra("uri", uri.toString()) }
             startForegroundService(intent)
             web.evaluateJavascript("window.trackLoaded && window.trackLoaded($pendingChannel, 'Áudio selecionado')", null)
         }
@@ -111,18 +95,13 @@ class MainActivity : Activity() {
 
     private fun scanAudioFolder(treeUri: Uri): List<Pair<String, String>> {
         val found = mutableListOf<Pair<String, String>>()
-        val rootId = DocumentsContract.getTreeDocumentId(treeUri)
-        scanDocument(treeUri, rootId, found)
+        scanDocument(treeUri, DocumentsContract.getTreeDocumentId(treeUri), found)
         return found.sortedBy { it.first.lowercase() }
     }
 
     private fun scanDocument(treeUri: Uri, documentId: String, found: MutableList<Pair<String, String>>) {
         val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
-        val columns = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_MIME_TYPE
-        )
+        val columns = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
         contentResolver.query(childrenUri, columns, null, null, null)?.use { cursor ->
             val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
             val nameIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -131,11 +110,9 @@ class MainActivity : Activity() {
                 val id = cursor.getString(idIndex)
                 val name = cursor.getString(nameIndex) ?: "Áudio"
                 val mime = cursor.getString(mimeIndex) ?: ""
-                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) {
-                    scanDocument(treeUri, id, found)
-                } else if (mime.startsWith("audio/") || name.substringAfterLast('.', "").lowercase() in setOf("mp3", "wav", "ogg", "m4a", "aac", "flac", "opus", "wma")) {
-                    val fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, id)
-                    found.add(name to fileUri.toString())
+                if (mime == DocumentsContract.Document.MIME_TYPE_DIR) scanDocument(treeUri, id, found)
+                else if (mime.startsWith("audio/") || name.substringAfterLast('.', "").lowercase() in setOf("mp3", "wav", "ogg", "m4a", "aac", "flac", "opus", "wma")) {
+                    found.add(name to DocumentsContract.buildDocumentUriUsingTree(treeUri, id).toString())
                 }
             }
         }

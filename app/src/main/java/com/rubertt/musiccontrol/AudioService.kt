@@ -2,30 +2,43 @@ package com.rubertt.musiccontrol
 
 import android.app.*
 import android.content.Intent
-import android.graphics.Bitmap
 import android.media.AudioAttributes
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.IBinder
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.media.app.NotificationCompat.MediaStyle
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import org.json.JSONArray
 
 class AudioService : Service() {
-    private val players = arrayOfNulls<MediaPlayer>(5)
-    private val volumes = FloatArray(5) { 1f }
-    private val fadeLevels = FloatArray(5) { 1f }
+    private val channelCount = 10
+    private val players = arrayOfNulls<MediaPlayer>(channelCount)
+    private val prepared = BooleanArray(channelCount)
+    private val volumes = FloatArray(channelCount) { 1f }
+    private val fadeLevels = FloatArray(channelCount) { 1f }
+    private val titles = Array(channelCount) { "Canal vazio" }
+    private val uris = arrayOfNulls<String>(channelCount)
     private val fadeHandler = Handler(Looper.getMainLooper())
-    private val fadeTokens = IntArray(5)
+    private val fadeTokens = IntArray(channelCount)
     private val channelId = "music_control_playback"
     private val notificationId = 42
     private lateinit var mediaSession: MediaSessionCompat
     private var currentTitle = "Music Control"
     private var currentChannel = 0
+    private var masterVolume = 1f
+    private var playlistMode = false
+    private var currentIndex = -1
+    private var fadeSeconds = 5f
+    private var transitionStarted = false
+    private var transitionToken = 0
+    private var transitionRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -52,61 +65,187 @@ class AudioService : Service() {
         }
         val command = intent ?: return START_NOT_STICKY
         val action = command.getStringExtra("action") ?: command.action ?: return START_NOT_STICKY
-        val channel = command.getIntExtra("channel", 0).coerceIn(0, 4)
+        val channel = command.getIntExtra("channel", 0).coerceIn(0, 9)
         when (action) {
+            "playlist" -> startPlaylist(command.getStringExtra("playlist") ?: "[]", command.getFloatExtra("fadeSeconds", 5f))
             "load" -> {
+                playlistMode = false
                 val uri = command.getStringExtra("uri") ?: return START_NOT_STICKY
-                currentTitle = command.getStringExtra("title") ?: currentTitle
+                val title = command.getStringExtra("title") ?: "Áudio selecionado"
+                currentTitle = title
                 currentChannel = channel
-                release(channel)
-                try {
-                    val player = MediaPlayer()
-                    player.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-                    player.setDataSource(this, android.net.Uri.parse(uri))
-                    player.setOnPreparedListener { updateNotification(); it.start(); updateNotification() }
-                    player.setOnCompletionListener { updateNotification() }
-                    players[channel] = player
-                    updateMediaSession()
-                    player.prepareAsync()
-                    startForeground(notificationId, notification())
-                } catch (_: Exception) { release(channel) }
+                loadOne(channel, uri, title, true)
             }
-            "play" -> { cancelFade(channel); fadeLevels[channel] = 1f; applyVolume(channel); players[channel]?.let { if (!it.isPlaying) it.start() }; startForeground(notificationId, notification()) }
+            "play" -> { playlistMode = false; cancelFade(channel); fadeLevels[channel] = 1f; applyVolume(channel); players[channel]?.let { if (!it.isPlaying) it.start() }; startForeground(notificationId, notification()) }
             "pause" -> { cancelFade(channel); players[channel]?.let { if (it.isPlaying) it.pause() } }
             "fade_in" -> startFade(channel, true, command.getLongExtra("durationMs", 3000L))
             "fade_out" -> startFade(channel, false, command.getLongExtra("durationMs", 3000L))
             "stop" -> { players[channel]?.let { if (it.isPlaying) it.pause(); try { it.seekTo(0) } catch (_: Exception) {} } }
             "volume" -> { volumes[channel] = command.getFloatExtra("value", 1f).coerceIn(0f, 1f); applyVolume(channel) }
-            "master" -> {
-                val v = command.getFloatExtra("value", 1f).coerceIn(0f, 1f)
-                for (i in 0..4) { volumes[i] = v; applyVolume(i) }
-            }
+            "master" -> { masterVolume = command.getFloatExtra("value", 1f).coerceIn(0f, 1f); for (i in 0 until channelCount) applyVolume(i) }
+            "next" -> if (playlistMode) beginCrossfade(nextIndex())
         }
         updateNotification()
         return START_STICKY
     }
 
+    private fun loadOne(index: Int, uri: String, title: String, startWhenReady: Boolean) {
+        release(index)
+        uris[index] = uri
+        titles[index] = title
+        try {
+            val p = MediaPlayer()
+            p.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
+            p.setDataSource(this, Uri.parse(uri))
+            p.setOnPreparedListener {
+                prepared[index] = true
+                if (startWhenReady && (currentIndex == -1 || currentIndex == index)) {
+                    currentIndex = index
+                    it.start()
+                    fadeLevels[index] = 1f
+                    currentTitle = titles[index]
+                    currentChannel = index
+                    scheduleAutoTransition()
+                }
+                applyVolume(index)
+                updateNotification()
+            }
+            p.setOnCompletionListener {
+                if (playlistMode && index == currentIndex && !transitionStarted) beginCrossfade(nextIndex())
+                else if (!playlistMode) updateNotification()
+            }
+            p.setOnErrorListener { _, _, _ -> release(index); updateNotification(); true }
+            players[index] = p
+            p.prepareAsync()
+            startForeground(notificationId, notification())
+        } catch (_: Exception) { release(index) }
+    }
+
+    private fun startPlaylist(json: String, seconds: Float) {
+        stopPlaylistPlayers()
+        playlistMode = true
+        fadeSeconds = seconds.coerceIn(1f, 30f)
+        currentIndex = -1
+        transitionStarted = false
+        val list = try { JSONArray(json) } catch (_: Exception) { JSONArray() }
+        val count = minOf(list.length(), channelCount)
+        if (count == 0) { playlistMode = false; updateNotification(); return }
+        for (i in 0 until count) {
+            val item = list.optJSONObject(i) ?: continue
+            val uri = item.optString("uri")
+            val title = item.optString("name", "Faixa ${i + 1}")
+            if (uri.isNotBlank()) loadOne(i, uri, title, i == 0)
+        }
+        currentTitle = "Preparando playlist"
+        currentChannel = 0
+        startForeground(notificationId, notification())
+    }
+
+    private fun nextIndex(): Int {
+        val loaded = (0 until channelCount).filter { uris[it] != null }
+        if (loaded.isEmpty()) return -1
+        val position = loaded.indexOf(currentIndex)
+        return loaded[(position + 1).mod(loaded.size)]
+    }
+
+    private fun scheduleAutoTransition() {
+        cancelTransition()
+        if (!playlistMode || currentIndex !in 0 until channelCount) return
+        val p = players[currentIndex] ?: return
+        if (!prepared[currentIndex]) return
+        val remaining = (p.duration - p.currentPosition).coerceAtLeast(0)
+        val delay = (remaining - (fadeSeconds * 1000).toInt()).coerceAtLeast(0)
+        val token = transitionToken
+        val task = Runnable { if (token == transitionToken && playlistMode && !transitionStarted) beginCrossfade(nextIndex()) }
+        transitionRunnable = task
+        fadeHandler.postDelayed(task, delay.toLong())
+    }
+
+    private fun cancelTransition() {
+        transitionToken++
+        transitionRunnable?.let { fadeHandler.removeCallbacks(it) }
+        transitionRunnable = null
+    }
+
+    private fun beginCrossfade(next: Int) {
+        if (!playlistMode || next !in 0 until channelCount || next == currentIndex || transitionStarted) return
+        val oldIndex = currentIndex
+        val old = if (oldIndex in 0 until channelCount) players[oldIndex] else null
+        val incoming = players[next] ?: return
+        if (!prepared[next]) {
+            val token = transitionToken
+            fadeHandler.postDelayed({ if (token == transitionToken) beginCrossfade(next) }, 150L)
+            return
+        }
+        transitionStarted = true
+        cancelTransition()
+        try { incoming.seekTo(0); incoming.setVolume(0f, 0f); if (!incoming.isPlaying) incoming.start() } catch (_: Exception) {}
+        val duration = (fadeSeconds * 1000).toLong()
+        val started = SystemClock.uptimeMillis()
+        val token = ++transitionToken
+        val task = object : Runnable {
+            override fun run() {
+                if (token != transitionToken) return
+                val f = ((SystemClock.uptimeMillis() - started).toFloat() / duration).coerceIn(0f, 1f)
+                fadeLevels[next] = f
+                applyVolume(next)
+                if (oldIndex in 0 until channelCount) {
+                    fadeLevels[oldIndex] = 1f - f
+                    applyVolume(oldIndex)
+                }
+                if (f < 1f) fadeHandler.postDelayed(this, 40L)
+                else {
+                    if (oldIndex in 0 until channelCount) release(oldIndex)
+                    currentIndex = next
+                    currentChannel = next
+                    currentTitle = titles[next]
+                    fadeLevels[next] = 1f
+                    transitionStarted = false
+                    updateNotification()
+                    scheduleAutoTransition()
+                }
+            }
+        }
+        fadeHandler.post(task)
+    }
+
     private fun playAll() {
-        players.forEach { player -> try { if (player != null && !player.isPlaying) player.start() } catch (_: Exception) {} }
-        if (players.any { it != null }) startForeground(notificationId, notification())
+        if (playlistMode && currentIndex >= 0) {
+            players[currentIndex]?.let { if (!it.isPlaying) it.start() }
+            scheduleAutoTransition()
+        } else players.forEach { p -> try { if (p != null && !p.isPlaying) p.start() } catch (_: Exception) {} }
+        if (hasPlayers()) startForeground(notificationId, notification())
         updateNotification()
     }
 
     private fun pauseAll() {
-        players.forEach { player -> try { if (player?.isPlaying == true) player.pause() } catch (_: Exception) {} }
+        cancelTransition()
+        players.forEach { p -> try { if (p?.isPlaying == true) p.pause() } catch (_: Exception) {} }
         updateNotification()
     }
 
     private fun stopAll() {
-        for (i in 0..4) release(i)
+        stopPlaylistPlayers()
         mediaSession.isActive = false
         updateMediaSession()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
-    private fun applyVolume(i: Int) { val v = (volumes[i] * fadeLevels[i]).coerceIn(0f, 1f); players[i]?.setVolume(v, v) }
+    private fun stopPlaylistPlayers() {
+        cancelTransition()
+        transitionStarted = false
+        for (i in 0 until channelCount) release(i)
+        currentIndex = -1
+    }
+
+    private fun applyVolume(i: Int) {
+        val v = (volumes[i] * fadeLevels[i] * masterVolume).coerceIn(0f, 1f)
+        try { players[i]?.setVolume(v, v) } catch (_: Exception) {}
+    }
+
     private fun cancelFade(i: Int) { fadeTokens[i]++; fadeHandler.removeCallbacksAndMessages(i) }
+
     private fun startFade(i: Int, fadeIn: Boolean, durationMs: Long) {
         val player = players[i] ?: return
         cancelFade(i)
@@ -120,40 +259,41 @@ class AudioService : Service() {
             try { if (!player.isPlaying) player.start() } catch (_: Exception) {}
             startForeground(notificationId, notification())
         }
-        val startedAt = android.os.SystemClock.uptimeMillis()
+        val startedAt = SystemClock.uptimeMillis()
         val tick = object : Runnable {
             override fun run() {
                 if (fadeTokens[i] != token) return
-                val fraction = ((android.os.SystemClock.uptimeMillis() - startedAt).toFloat() / duration).coerceIn(0f, 1f)
+                val fraction = ((SystemClock.uptimeMillis() - startedAt).toFloat() / duration).coerceIn(0f, 1f)
                 fadeLevels[i] = start + (end - start) * fraction
                 applyVolume(i)
-                if (fraction < 1f) fadeHandler.postAtTime(this, i, android.os.SystemClock.uptimeMillis() + 40L)
+                if (fraction < 1f) fadeHandler.postAtTime(this, i, SystemClock.uptimeMillis() + 40L)
                 else if (!fadeIn) { try { if (player.isPlaying) player.pause() } catch (_: Exception) {} ; updateNotification() }
             }
         }
-        fadeHandler.postAtTime(tick, i, android.os.SystemClock.uptimeMillis())
+        fadeHandler.postAtTime(tick, i, SystemClock.uptimeMillis())
     }
 
-    private fun release(i: Int) { cancelFade(i); try { players[i]?.release() } catch (_: Exception) {}; players[i] = null; fadeLevels[i] = 1f }
-    private fun isPlaying() = players.any { it?.isPlaying == true }
+    private fun release(i: Int) {
+        cancelFade(i)
+        try { players[i]?.release() } catch (_: Exception) {}
+        players[i] = null
+        prepared[i] = false
+        uris[i] = null
+        fadeLevels[i] = 1f
+    }
+
+    private fun isPlaying() = players.any { try { it?.isPlaying == true } catch (_: Exception) { false } }
     private fun hasPlayers() = players.any { it != null }
 
     private fun updateMediaSession() {
         if (!::mediaSession.isInitialized) return
-        mediaSession.setMetadata(
-            MediaMetadataCompat.Builder()
-                .putString(MediaMetadataCompat.METADATA_TITLE, currentTitle)
-                .putString(MediaMetadataCompat.METADATA_ARTIST, "Music Control · Canal ${currentChannel + 1}")
-                .putString(MediaMetadataCompat.METADATA_ALBUM, "NERV AUDIO SYSTEM")
-                .putLong(MediaMetadataCompat.METADATA_DURATION, 0L)
-                .build()
-        )
+        mediaSession.setMetadata(MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_TITLE, currentTitle)
+            .putString(MediaMetadataCompat.METADATA_ARTIST, "Music Control · Canal ${currentChannel + 1}")
+            .putString(MediaMetadataCompat.METADATA_ALBUM, "NERV AUDIO SYSTEM")
+            .build())
         val playing = isPlaying()
-        val state = when {
-            playing -> PlaybackStateCompat.STATE_PLAYING
-            hasPlayers() -> PlaybackStateCompat.STATE_PAUSED
-            else -> PlaybackStateCompat.STATE_STOPPED
-        }
+        val state = when { playing -> PlaybackStateCompat.STATE_PLAYING; hasPlayers() -> PlaybackStateCompat.STATE_PAUSED; else -> PlaybackStateCompat.STATE_STOPPED }
         val actions = PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_STOP
         mediaSession.setPlaybackState(PlaybackStateCompat.Builder().setActions(actions).setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, if (playing) 1f else 0f).build())
         mediaSession.isActive = hasPlayers()
@@ -162,39 +302,29 @@ class AudioService : Service() {
     private fun notification(): android.app.Notification {
         val open = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val playing = isPlaying()
-        val toggleAction = if (playing) "pause_all" else "play_all"
-        val toggle = PendingIntent.getService(this, 1, Intent(this, AudioService::class.java).setAction(toggleAction), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val toggle = PendingIntent.getService(this, 1, Intent(this, AudioService::class.java).setAction(if (playing) "pause_all" else "play_all"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val stop = PendingIntent.getService(this, 2, Intent(this, AudioService::class.java).setAction("STOP_ALL"), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         updateMediaSession()
         return NotificationCompat.Builder(this, channelId)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(currentTitle)
             .setContentText("Music Control · Canal ${currentChannel + 1}")
-            .setContentIntent(open)
-            .setOngoing(playing)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(open).setOngoing(playing).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOnlyAlertOnce(true)
             .addAction(if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play, if (playing) "Pausar" else "Reproduzir", toggle)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Parar", stop)
-            .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1))
-            .build()
+            .setStyle(MediaStyle().setMediaSession(mediaSession.sessionToken).setShowActionsInCompactView(0, 1)).build()
     }
 
     private fun updateNotification() {
         updateMediaSession()
-        if (hasPlayers()) {
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.notify(notificationId, notification())
-        } else {
-            mediaSession.isActive = false
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        }
+        if (hasPlayers()) getSystemService(NotificationManager::class.java).notify(notificationId, notification())
+        else { mediaSession.isActive = false; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onDestroy() {
-        for (i in 0..4) release(i)
+        stopPlaylistPlayers()
         if (::mediaSession.isInitialized) { mediaSession.isActive = false; mediaSession.release() }
         super.onDestroy()
     }
