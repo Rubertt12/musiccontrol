@@ -288,9 +288,9 @@ class AudioService : Service() {
     private fun updateMediaSession() {
         if (!::mediaSession.isInitialized) return
         mediaSession.setMetadata(MediaMetadataCompat.Builder()
-            .putString(MediaMetadataCompat.METADATA_TITLE, currentTitle)
-            .putString(MediaMetadataCompat.METADATA_ARTIST, "Music Control · Canal ${currentChannel + 1}")
-            .putString(MediaMetadataCompat.METADATA_ALBUM, "NERV AUDIO SYSTEM")
+            .putString(MediaMetadataCompat.METADATA_KEY_TITLE, currentTitle)
+            .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Music Control · Canal ${currentChannel + 1}")
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "NERV AUDIO SYSTEM")
             .build())
         val playing = isPlaying()
         val state = when { playing -> PlaybackStateCompat.STATE_PLAYING; hasPlayers() -> PlaybackStateCompat.STATE_PAUSED; else -> PlaybackStateCompat.STATE_STOPPED }
